@@ -80,7 +80,12 @@ _load_gwt_config() {
 
   # Validate WORKTREE_PATH pattern (basic check for unsafe characters)
   if [[ -n "$GWT_WORKTREE_PATH" ]]; then
-    if [[ "$GWT_WORKTREE_PATH" =~ [\;|\&|\$\(|\`] ]]; then
+    if [[ "$GWT_WORKTREE_PATH" == *";"* ]] || \
+       [[ "$GWT_WORKTREE_PATH" == *"&"* ]] || \
+       [[ "$GWT_WORKTREE_PATH" == *'$('* ]] || \
+       [[ "$GWT_WORKTREE_PATH" == *'`'* ]] || \
+       [[ "$GWT_WORKTREE_PATH" == *'<'* ]] || \
+       [[ "$GWT_WORKTREE_PATH" == *'>'* ]]; then
       print -r -- "Error: WORKTREE_PATH contains unsafe characters" >&2
       print -r -- "Falling back to default pattern" >&2
       GWT_WORKTREE_PATH=""
@@ -141,14 +146,18 @@ EOF
       return 1
     fi
 
-    # Check for invalid git ref characters
-    if [[ "$name" =~ '[\~\^:\?\*\[]' ]] || \
+    # Check for invalid git ref characters and shell metacharacters
+    if [[ "$name" =~ [\~\^:\?\*\[\$\|\&] ]] || \
        [[ "$name" =~ '@{' ]] || \
-       [[ "$name" =~ '\.\.' ]] || \
+       [[ "$name" =~ [.][.] ]] || \
        [[ "$name" =~ '//' ]] || \
-       [[ "$name" == *\\* ]]; then
+       [[ "$name" == *\\* ]] || \
+       [[ "$name" == *'`'* ]] || \
+       [[ "$name" == *'<'* ]] || \
+       [[ "$name" == *'>'* ]] || \
+       [[ "$name" == *';'* ]]; then
       print -r -- "Error: Feature name contains invalid characters for git branch names."
-      print -r -- "Avoid: \\ ~ ^ : ? * [ @{ .. //"
+      print -r -- "Avoid: \\ ~ ^ : ? * [ @{ .. // \$ | & ; < > \`"
       return 1
     fi
 
