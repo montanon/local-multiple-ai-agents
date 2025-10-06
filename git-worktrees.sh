@@ -56,9 +56,39 @@ _load_gwt_config() {
 
       # Set configuration based on key
       case "$key" in
-        EDITOR) GWT_EDITOR="$value" ;;
-        COPY_FILES) GWT_COPY_FILES="$value" ;;
-        COPY_DIRS) GWT_COPY_DIRS="$value" ;;
+        EDITOR)
+          # Sanitize EDITOR value to prevent command injection
+          if [[ "$value" =~ [\$\`\(\)\|\&\;\<\>] ]] || \
+             [[ "$value" == *'$('* ]] || \
+             [[ "$value" == *'`'* ]]; then
+            print -r -- "Error: EDITOR contains unsafe characters" >&2
+            GWT_EDITOR="cursor"  # Use safe default
+          else
+            GWT_EDITOR="$value"
+          fi
+          ;;
+        COPY_FILES)
+          # Sanitize COPY_FILES to prevent command injection
+          if [[ "$value" =~ [\$\`\(\)\|\&\;\<\>] ]] || \
+             [[ "$value" == *'$('* ]] || \
+             [[ "$value" == *'`'* ]]; then
+            print -r -- "Error: COPY_FILES contains unsafe characters" >&2
+            GWT_COPY_FILES=".env"  # Use safe default
+          else
+            GWT_COPY_FILES="$value"
+          fi
+          ;;
+        COPY_DIRS)
+          # Sanitize COPY_DIRS to prevent command injection
+          if [[ "$value" =~ [\$\`\(\)\|\&\;\<\>] ]] || \
+             [[ "$value" == *'$('* ]] || \
+             [[ "$value" == *'`'* ]]; then
+            print -r -- "Error: COPY_DIRS contains unsafe characters" >&2
+            GWT_COPY_DIRS=""  # Use safe default (no dirs)
+          else
+            GWT_COPY_DIRS="$value"
+          fi
+          ;;
         AUTO_OPEN) GWT_AUTO_OPEN="$value" ;;
         WORKTREE_PATH) GWT_WORKTREE_PATH="$value" ;;
         *) print -r -- "Warning: Unknown config key '$key' in $config_file" >&2 ;;
@@ -161,6 +191,12 @@ EOF
       return 1
     fi
 
+    # Check for path traversal attempts
+    if [[ "$name" == ../* ]] || [[ "$name" == */../* ]]; then
+      print -r -- "Error: Feature name cannot contain path traversal (../)."
+      return 1
+    fi
+
     # Cannot start with . or end with .lock
     if [[ "$name" == .* ]] || [[ "$name" == *.lock ]]; then
       print -r -- "Error: Feature name cannot start with '.' or end with '.lock'."
@@ -232,7 +268,6 @@ EOF
     case "$1" in
       -h|--help)
         _show_usage
-        trap - INT TERM EXIT
         return 0
         ;;
       -e|--existing)
@@ -247,7 +282,6 @@ EOF
         print -r -- "Error: Unknown option: $1"
         print -r -- ""
         _show_usage
-        trap - INT TERM EXIT
         return 1
         ;;
       *)
@@ -258,8 +292,7 @@ EOF
           print -r -- "Error: Too many arguments."
           print -r -- ""
           _show_usage
-          trap - INT TERM EXIT
-          return 1
+            return 1
         fi
         ;;
     esac
@@ -272,7 +305,6 @@ EOF
     print -r -- "Error: Feature name is required."
     print -r -- ""
     _show_usage
-    trap - INT TERM EXIT
     return 1
   fi
 
@@ -280,13 +312,11 @@ EOF
   local project_dir
   if ! project_dir=$(git rev-parse --show-toplevel 2>/dev/null); then
     print -r -- "Error: Not inside a git repository."
-    trap - INT TERM EXIT
     return 1
   fi
 
   # Validate feature name
   if ! _validate_name "$feature_name"; then
-    trap - INT TERM EXIT
     return 1
   fi
 
@@ -300,14 +330,12 @@ EOF
   # Check if worktree already exists
   if [[ -d "$worktree_path" ]]; then
     print -r -- "Error: Worktree already exists at: $worktree_path"
-    trap - INT TERM EXIT
     return 1
   fi
 
   # Check if worktree is already registered with git
   if git -C "$project_dir" worktree list | grep -q "$worktree_path"; then
     print -r -- "Error: Worktree path already registered with git: $worktree_path"
-    trap - INT TERM EXIT
     return 1
   fi
 
@@ -327,7 +355,6 @@ EOF
       if ! git -C "$project_dir" show-ref --verify "refs/remotes/$feature_name" >/dev/null 2>&1; then
         print -r -- "Error: Remote branch '$feature_name' does not exist."
         print -r -- "Try: git fetch origin"
-        trap - INT TERM EXIT
         return 1
       fi
       branch_ref="$feature_name"
@@ -338,7 +365,6 @@ EOF
       if ! git -C "$project_dir" show-ref --verify "refs/heads/$feature_name" >/dev/null 2>&1; then
         print -r -- "Error: Local branch '$feature_name' does not exist."
         print -r -- "Use 'cwt $feature_name' without -e flag to create a new branch."
-        trap - INT TERM EXIT
         return 1
       fi
     fi
@@ -347,16 +373,14 @@ EOF
     if git -C "$project_dir" show-ref --verify "refs/heads/$feature_name" >/dev/null 2>&1; then
       print -r -- "Error: Branch '$feature_name' already exists."
       print -r -- "Use 'cwt -e $feature_name' to checkout the existing branch."
-      trap - INT TERM EXIT
-      return 1
+        return 1
     fi
 
     # Check if remote branch exists
     if git -C "$project_dir" show-ref --verify "refs/remotes/origin/$feature_name" >/dev/null 2>&1; then
       print -r -- "Error: Remote branch 'origin/$feature_name' already exists."
       print -r -- "Use 'cwt -e origin/$feature_name' to checkout the remote branch."
-      trap - INT TERM EXIT
-      return 1
+        return 1
     fi
   fi
 
@@ -365,7 +389,6 @@ EOF
   # Create parent directory
   if ! mkdir -p "$worktree_parent"; then
     print -r -- "Error: Failed to create worktree parent directory: $worktree_parent"
-    trap - INT TERM EXIT
     return 1
   fi
 
@@ -435,7 +458,6 @@ EOF
 
   # Success - disable cleanup
   cleanup_needed=0
-  trap - INT TERM EXIT
 
   print -r -- "Created worktree at: $worktree_path"
 }
@@ -495,13 +517,12 @@ dwt() {
     return 1
   fi
 
-  local worktree_path git_common_dir main_repo worktree_name branch_name lock
+  local worktree_path git_common_dir main_repo worktree_name branch_name
   worktree_path=$(git rev-parse --show-toplevel)
   git_common_dir=$(git rev-parse --git-common-dir)
   main_repo=$(dirname "$git_common_dir")
   worktree_name=$(basename "$worktree_path")
   branch_name=$(git branch --show-current 2>/dev/null || true)
-  lock="$main_repo/.git/index.lock"
 
   # Check for uncommitted changes
   local has_uncommitted=0
@@ -551,33 +572,6 @@ dwt() {
     local confirmation
     read -r "?Delete this worktree? [y/N]: " confirmation
     [[ "$confirmation" =~ ^[Yy]$ ]] || { print -r -- "Cancelled."; return 0; }
-  fi
-
-  # helper: remove stale lock only if no process holds it
-  local _cleanup_needed=0
-  _remove_stale_lock() {
-    if [[ -e "$lock" ]]; then
-      if command -v lsof >/dev/null 2>&1 && lsof "$lock" >/dev/null 2>&1; then
-        # in-use; do nothing
-        :
-      else
-        rm -f -- "$lock"
-      fi
-    fi
-  }
-
-  # localize traps so they don't persist
-  trap '_remove_stale_lock' INT TERM
-
-  # preflight: clear stale lock (don't touch if in use)
-  if [[ -e "$lock" ]]; then
-    if command -v lsof >/dev/null 2>&1 && lsof "$lock" >/dev/null 2>&1; then
-      print -r -- "Git index in use at $lock. Close editors/terminals and retry."
-      return 1
-    else
-      print -r -- "Removing stale index.lock"
-      rm -f -- "$lock"
-    fi
   fi
 
   # Do operations without changing the caller's directory
@@ -858,6 +852,8 @@ EOF
       current_branch="${line#branch refs/heads/}"
     elif [[ "$line" == HEAD\ * ]]; then
       current_branch="(detached)"
+    elif [[ "$line" == detached ]]; then
+      current_branch="(detached)"
     elif [[ -z "$line" && -n "$current_path" ]]; then
       # End of worktree entry
       local wt_name=$(basename "$current_path")
@@ -1046,21 +1042,74 @@ uwt() {
   }
   print -r -- ""
 
-  # Get list of all worktrees
-  local -a worktree_list
+  # Get list of all worktrees using proper porcelain parsing
   local -a worktree_paths
   local -a worktree_branches
   local -a worktree_status
   local -a worktree_dirty
 
-  while IFS= read -r line; do
-    local wt_path=$(print -r -- "$line" | awk '{print $1}')
-    local wt_branch=$(print -r -- "$line" | awk -F'[][]' '{print $2}')
+  # Parse porcelain format properly (like lwt does)
+  local worktrees_output
+  worktrees_output=$(git -C "$main_repo" worktree list --porcelain)
 
+  local wt_path="" wt_branch="" wt_head=""
+  while IFS= read -r line; do
+    if [[ "$line" == worktree\ * ]]; then
+      # New worktree entry - process previous one if exists
+      if [[ -n "$wt_path" ]]; then
+        # Process the previous worktree
+        worktree_paths+=("$wt_path")
+        worktree_branches+=("$wt_branch")
+
+        # Check for uncommitted changes
+        local dirty=0
+        if ! git -C "$wt_path" diff --quiet 2>/dev/null || \
+           ! git -C "$wt_path" diff --cached --quiet 2>/dev/null || \
+           [[ -n $(git -C "$wt_path" ls-files --others --exclude-standard 2>/dev/null) ]]; then
+          dirty=1
+        fi
+        worktree_dirty+=($dirty)
+
+        # Check tracking status
+        local status="no-remote"
+        local upstream
+        if upstream=$(git -C "$wt_path" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null); then
+          local local_commit=$(git -C "$wt_path" rev-parse @ 2>/dev/null)
+          local remote_commit=$(git -C "$wt_path" rev-parse @{u} 2>/dev/null)
+          local base_commit=$(git -C "$wt_path" merge-base @ @{u} 2>/dev/null)
+
+          if [[ "$local_commit" == "$remote_commit" ]]; then
+            status="up-to-date"
+          elif [[ "$local_commit" == "$base_commit" ]]; then
+            status="behind"
+          elif [[ "$remote_commit" == "$base_commit" ]]; then
+            status="ahead"
+          else
+            status="diverged"
+          fi
+        fi
+        worktree_status+=("$status")
+      fi
+
+      # Start new entry
+      wt_path="${line#worktree }"
+      wt_branch=""
+      wt_head=""
+
+    elif [[ "$line" == branch\ * ]]; then
+      wt_branch="${line#branch refs/heads/}"
+    elif [[ "$line" == HEAD\ * ]]; then
+      wt_head="${line#HEAD }"
+    elif [[ "$line" == detached ]]; then
+      wt_branch="(detached)"
+    fi
+  done <<< "$worktrees_output"
+
+  # Process the last worktree
+  if [[ -n "$wt_path" ]]; then
     worktree_paths+=("$wt_path")
     worktree_branches+=("$wt_branch")
 
-    # Check for uncommitted changes
     local dirty=0
     if ! git -C "$wt_path" diff --quiet 2>/dev/null || \
        ! git -C "$wt_path" diff --cached --quiet 2>/dev/null || \
@@ -1069,7 +1118,6 @@ uwt() {
     fi
     worktree_dirty+=($dirty)
 
-    # Check tracking status
     local status="no-remote"
     local upstream
     if upstream=$(git -C "$wt_path" rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null); then
@@ -1088,8 +1136,7 @@ uwt() {
       fi
     fi
     worktree_status+=("$status")
-
-  done < <(git -C "$main_repo" worktree list --porcelain | awk '/^worktree /{path=$2} /^branch /{branch=$2; print path, branch}')
+  fi
 
   # Display worktree status
   print -r -- "Worktree Status:"
