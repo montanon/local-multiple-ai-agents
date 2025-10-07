@@ -47,6 +47,11 @@ _gwt_read_prompt() {
   local prompt="$1"
   local var_name="$2"
 
+  # Lazy shell detection
+  if [ -z "${GWT_SHELL:-}" ]; then
+    _gwt_detect_shell
+  fi
+
   if [ "$GWT_SHELL" = "zsh" ]; then
     # zsh syntax: read -r "?prompt" varname
     eval "read -r \"?${prompt}\" ${var_name}"
@@ -60,6 +65,12 @@ _gwt_read_prompt() {
 _gwt_array_append() {
   local array_name="$1"
   shift
+
+  # Lazy shell detection
+  if [ -z "${GWT_SHELL:-}" ]; then
+    _gwt_detect_shell
+  fi
+
   if [ "$GWT_SHELL" = "zsh" ]; then
     eval "${array_name}+=(\"\$@\")"
   else
@@ -70,30 +81,40 @@ _gwt_array_append() {
 
 # Cross-shell function setup (replaces emulate -L zsh + setopt)
 _gwt_function_setup() {
+  # Lazy initialization - detect shell on first use
+  if [ -z "${GWT_SHELL:-}" ]; then
+    _gwt_detect_shell
+  fi
+
   if [ "$GWT_SHELL" = "zsh" ]; then
     emulate -L zsh
     setopt local_options local_traps 2>/dev/null || true
     setopt err_return pipe_fail no_unset 2>/dev/null || true
   elif [ "$GWT_SHELL" = "bash" ]; then
-    set -euo pipefail 2>/dev/null || true
+    # Use -eo pipefail without -u to avoid nested function scoping issues
+    set -eo pipefail 2>/dev/null || true
   fi
 }
 
-# Initialize shell compatibility
-_gwt_detect_shell
+# Note: Shell detection is now lazy - happens on first function call
+# This prevents interference with .zshrc/.bashrc sourcing
 
 # ============================================================================
 # CONFIGURATION SYSTEM
 # ============================================================================
 
 _load_gwt_config() {
+  # Lazy shell detection
+  if [ -z "${GWT_SHELL:-}" ]; then
+    _gwt_detect_shell
+  fi
+
   # Shell-specific setup
   if [ "$GWT_SHELL" = "zsh" ]; then
     emulate -L zsh
     setopt local_options no_unset
-  elif [ "$GWT_SHELL" = "bash" ]; then
-    set -u
   fi
+  # Note: Bash doesn't need special setup here
 
   # Get the git repo root
   local project_dir
